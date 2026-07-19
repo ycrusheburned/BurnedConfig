@@ -1,0 +1,112 @@
+name: Build all versions
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mc: "1.18.2"
+            track: legacy
+            yarn: "1.18.2+build.4"
+            loader: "0.16.9"
+            loom: "1.6-SNAPSHOT"
+          - mc: "1.19.4"
+            track: legacy
+            yarn: "1.19.4+build.2"
+            loader: "0.16.9"
+            loom: "1.6-SNAPSHOT"
+          - mc: "1.20.1"
+            track: legacy
+            yarn: "1.20.1+build.10"
+            loader: "0.16.9"
+            loom: "1.7-SNAPSHOT"
+          - mc: "1.21.1"
+            track: legacy
+            yarn: "1.21.1+build.3"
+            loader: "0.16.9"
+            loom: "1.8-SNAPSHOT"
+          - mc: "26.1"
+            track: modern
+            loader: "0.18.4"
+            loom: "1.15-SNAPSHOT"
+          - mc: "26.2"
+            track: modern
+            loader: "0.19.3"
+            loom: "1.17-SNAPSHOT"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          # 26.1+ requires Java 25. Older lines build fine with 21 too.
+          java-version: ${{ matrix.track == 'modern' && '25' || '21' }}
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build ${{ matrix.mc }}
+        run: |
+          if [ "${{ matrix.track }}" = "modern" ]; then
+            gradle build \
+              -Ptrack=modern \
+              -Pminecraft_version=${{ matrix.mc }} \
+              -Ploader_version=${{ matrix.loader }} \
+              -Ploom_version=${{ matrix.loom }} \
+              -Pmc_version_range=">=26.1" \
+              --stacktrace
+          else
+            gradle build \
+              -Ptrack=legacy \
+              -Pminecraft_version=${{ matrix.mc }} \
+              -Pyarn_mappings=${{ matrix.yarn }} \
+              -Ploader_version=${{ matrix.loader }} \
+              -Ploom_version=${{ matrix.loom }} \
+              -Pmc_version_range=">=1.18.2 <=1.21.1" \
+              --stacktrace
+          fi
+
+      - name: Collect jar
+        run: |
+          mkdir -p collected
+          cp build/libs/*.jar collected/ 2>/dev/null || { echo "No jar produced for ${{ matrix.mc }} - failing this matrix leg"; exit 1; }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: burnedconfig-${{ matrix.mc }}
+          path: collected/*.jar
+          if-no-files-found: error
+
+  package:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all jars
+        uses: actions/download-artifact@v4
+        with:
+          path: all-jars
+          pattern: burnedconfig-*
+          merge-multiple: true
+
+      - name: Zip everything that actually built
+        run: |
+          cd all-jars
+          ls -la
+          zip -r ../BurnedConfig-all-versions.zip .
+
+      - name: Upload combined zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: BurnedConfig-all-versions
+          path: BurnedConfig-all-versions.zip

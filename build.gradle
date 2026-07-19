@@ -1,0 +1,72 @@
+// BurnedConfig build script.
+// Supports two build "tracks", selected per-invocation via -Ptrack=legacy|modern
+//   legacy  -> MC 1.18.2 - 1.21.1  (obfuscated, Yarn mappings, plugin id "fabric-loom")
+//   modern  -> MC 26.1 / 26.2      (unobfuscated, Mojang's own names, plugin id "net.fabricmc.fabric-loom")
+// All version numbers are passed in from the CI matrix / gradle.properties, never hardcoded guesses.
+
+def track = (findProperty("track") ?: "legacy").toString()
+def isModern = track == "modern"
+
+buildscript {
+    repositories {
+        maven { url = "https://maven.fabricmc.net/" }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+    dependencies {
+        def loomVer = project.findProperty("loom_version") ?: "1.11-SNAPSHOT"
+        classpath "net.fabricmc:fabric-loom:${loomVer}"
+    }
+}
+
+apply plugin: "net.fabricmc.fabric-loom"
+apply plugin: "java"
+apply plugin: "maven-publish"
+
+version = project.mod_version
+group = project.maven_group
+
+repositories {
+    maven { url = "https://maven.fabricmc.net/" }
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+
+    if (isModern) {
+        // 26.1+ ships unobfuscated with Mojang's own names -> no separate mapping artifact needed.
+        mappings loom.layered() {
+            officialMojangMappings()
+        }
+    } else {
+        mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    }
+
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+}
+
+java {
+    def javaVer = isModern ? JavaVersion.VERSION_25 : JavaVersion.VERSION_17
+    sourceCompatibility = javaVer
+    targetCompatibility = javaVer
+    withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+    it.options.release.set(isModern ? 25 : 17)
+}
+
+processResources {
+    inputs.property "version", project.version
+    filteringCharset "UTF-8"
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version, "mc_version_range": project.mc_version_range
+    }
+}
+
+jar {
+    archiveBaseName.set("burnedconfig-mc${project.minecraft_version}")
+    from("LICENSE") { rename { "${it}_BurnedConfig" } }
+}

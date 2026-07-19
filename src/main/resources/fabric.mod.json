@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "burnedconfig",
+  "version": "${version}",
+  "name": "BurnedConfig",
+  "description": "Annotation-based JSON config library (@Config / @ConfigEntry) with auto-create, load, save and reload.",
+  "authors": ["Burned"],
+  "contact": {
+    "homepage": "https://github.com/ycrusheburned/BurnedConfig"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.kizilmc.burnedconfig.BurnedConfigMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "${mc_version_range}"
+  }
+}
