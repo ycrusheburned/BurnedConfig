@@ -1,57 +1,158 @@
 # BurnedConfig
 
-Annotation-based JSON config library for Fabric mods.
+Fabric modları için hafif, **allocation-dostu** config kütüphanesi.
+İki farklı kullanım şekli sunar:
 
-```java
-@Config(name = "my_mod")
-public class MyConfig {
-    @ConfigEntry(comment = "Max players per island", min = 1, max = 64)
-    public int maxIslandMembers = 4;
-    public boolean pvpEnabled = false;
+- **Annotation API** — `@Config` / `@Entry` ile POJO tabanlı, en az kod.
+- **Builder API** (`SimpleConfig`) — annotasyonsuz, akıcı (fluent) kullanım.
+
+Her iki API de aynı motoru (`ConfigRegistry`) paylaşır; kod tekrarı yoktur.
+
+## Neden BurnedConfig?
+
+- Dosyayı otomatik oluşturur, eksik alanları varsayılan değerlerle tamamlar.
+- Reflection **yalnızca `register()` çağrısında** çalışır; sonrası tamamen
+  önbelleğe alınmış alan listesi üzerinden gider. Tick döngüsünde,
+  save/reload çağrılarında yeni reflection taraması ya da gereksiz obje
+  allocation'ı yoktur.
+- Atomik dosya yazımı (geçici dosya + rename) — çökme/eşzamanlı yazma
+  config dosyasını bozmaz.
+- `core` modülü saf Java'dır, Minecraft/Fabric'e bağımlı değildir; Fabric
+  wrapper modülleri yalnızca config klasörünü core'a bildirir.
+
+## Kurulum
+
+`build.gradle` (Groovy):
+
+```groovy
+repositories {
+    maven { url "https://your-maven-repo/" } // veya jar-in-jar ile dağıtım
 }
 
-// in your mod's onInitialize():
-MyConfig cfg = ConfigManager.register(MyConfig.class);
-// edit a field, then persist it:
-cfg.maxIslandMembers = 8;
-ConfigManager.save(MyConfig.class);
-// re-read from disk (e.g. after an in-game /reload command):
-ConfigManager.reload(MyConfig.class);
+dependencies {
+    modImplementation include("dev.burned:BurnedConfig-fabric:1.0.0-1.18-26.2")
+}
 ```
 
-- File is created automatically on first `register()` call, at `config/<name>.json`.
-- Any public, non-static, non-transient field is persisted — no getters/setters needed.
-- `@ConfigEntry(min=, max=)` clamps numeric fields automatically after every load/reload.
-- Missing keys in an existing file fall back to defaults instead of crashing.
+Desteklenen sürüm aralığı için aşağıdaki **Modüller** bölümüne bakın.
 
-## Supported Minecraft versions
+## Kullanım: Annotation API
 
-| Version | Mapping system | Notes |
-|---|---|---|
-| 1.18.2 | Yarn | legacy track |
-| 1.19.4 | Yarn | legacy track |
-| 1.20.1 | Yarn | legacy track |
-| 1.21.1 | Yarn | legacy track, last obfuscated line |
-| 26.1 "Tiny Takeover" | Mojang official (unobfuscated) | modern track, needs Java 25 |
-| 26.2 "Chaos Cubed" | Mojang official (unobfuscated) | modern track, needs Java 25 |
+```java
+@Config("example")          // -> config/example.json
+public class ExampleConfig {
 
-Each version is compiled as its own separate jar by the CI matrix in
-`.github/workflows/build.yml` — there is no single jar that magically runs on
-every version, because 26.1+ dropped Yarn mappings entirely and requires a
-different Loom plugin id (`net.fabricmc.fabric-loom`) and Java 25. This is the
-same approach real multi-version Fabric mods use.
+    @Entry
+    public boolean fly = true;
 
-## Building yourself
+    @Entry
+    public int maxHomes = 5;
 
-```
-gradle build -Ptrack=legacy -Pminecraft_version=1.20.1 -Pyarn_mappings=1.20.1+build.10 -Ploader_version=0.16.9
-gradle build -Ptrack=modern -Pminecraft_version=26.2 -Ploader_version=0.19.3
+    @Entry(key = "prefix", comment = "Sohbet öneki")
+    public String prefix = "&6Server";
+}
 ```
 
-Or just push to `main` / trigger the workflow manually — GitHub Actions builds
-all six versions and bundles every jar that succeeded into
-`BurnedConfig-all-versions.zip` under the **package** job's artifacts.
+```java
+// Mod init sırasında bir kez:
+ExampleConfig cfg = ConfigManager.register(ExampleConfig.class);
 
-If a given matrix leg fails (e.g. a loader/loom version number goes stale),
-the other five still build — check the Actions run's per-job logs for the
-one that failed and bump the number in `build.yml`.
+// Dosya yoksa oluşturulur; varsa eksik alanlar tamamlanır.
+// cfg artık kullanılabilir durumda.
+
+cfg.maxHomes = 10;
+ConfigManager.save(cfg);     // değişikliği diske yaz
+
+ConfigManager.reload(cfg);   // diskteki güncel hali belleğe al (örn. /reload komutu)
+```
+
+Desteklenen alan tipleri: `boolean`, `int`, `long`, `double`, `float`,
+`String` ve bunların kutulanmış (boxed) karşılıkları, ayrıca Gson'un
+doğal olarak (de)serialize edebildiği `List<String>` gibi basit
+koleksiyonlar.
+
+## Kullanım: Builder API
+
+```java
+SimpleConfig cfg = ConfigManager.create("settings"); // -> config/settings.json
+
+cfg.addBoolean("fly", true);
+cfg.addInt("maxHomes", 5);
+cfg.addString("prefix", "&6Server");
+cfg.save();
+
+// Daha sonra:
+boolean fly = cfg.getBoolean("fly");
+```
+
+`addX(key, default)` metotları **"yalnızca eksikse ekle"** mantığıyla
+çalışır: dosyada zaten değer varsa dokunulmaz.
+
+## Config dizinini ayarlama
+
+Fabric wrapper modülleri bunu otomatik yapar
+(`FabricLoader.getInstance().getConfigDir()`). Kütüphaneyi Fabric dışında
+(örn. unit testte) kullanıyorsanız:
+
+```java
+ConfigManager.setBaseDirectory(Path.of("config"));
+```
+
+## Modüller
+
+BurnedConfig hiçbir `net.minecraft.*` sınıfına dokunmaz (yalnızca Fabric
+Loader'ın stabil `ModInitializer` / `FabricLoader` API'sini kullanır).
+Bu yüzden Loom/yarn mappings'e ihtiyaç yoktur ve **tek bir modül**,
+**1.18'den güncel sürüme (26.2) kadar tüm Minecraft sürümlerini** kapsar —
+"aynı API çalışan sürümler tek modülde toplanır" kuralının en sade hali.
+
+| Modül    | Kapsam        | Jar                                  |
+|----------|---------------|---------------------------------------|
+| `fabric` | 1.18 – 26.2   | `BurnedConfig-fabric-1.0.0-1.18-26.2.jar` |
+
+Minecraft'ın kendi sürümleme şeması ileride tekrar değişir ya da
+Fabric Loader'ın entrypoint API'si kırılırsa (son ~6 yıldır olmadı),
+o zaman ve ancak o zaman yeni bir modül açılır.
+
+Tüm jar `BurnedConfig-all.zip` içinde her sürümde otomatik olarak
+GitHub Actions tarafından üretilir (bkz. Releases sekmesi).
+
+## Proje yapısı
+
+```
+BurnedConfig/
+├── core/     # Saf Java: tüm config mantığı burada (tek kopya)
+├── fabric/   # İnce Fabric entrypoint (core'u shadow ile gömer)
+└── .github/workflows/build.yml
+```
+
+Yeni bir MC sürümü Fabric Loader'ın entrypoint API'sini kırmadığı sürece
+(pratikte yıllardır kırmıyor), `fabric.mod.json` içindeki `minecraft`
+bağımlılık aralığı güncellenir — yeni modül açılmaz.
+
+## Derleme
+
+```bash
+./gradlew build
+```
+
+> **Not:** Bu repo, `gradle/wrapper/gradle-wrapper.jar` binary dosyasını
+> içermez (üretim ortamında ağ erişimi olmayan bir asistan tarafından
+> hazırlandığı için indirilemedi). İlk klonlamadan sonra bir kere
+> `gradle wrapper --gradle-version 8.10` çalıştırarak wrapper'ı
+> oluşturun, ardından commit'leyin. GitHub Actions bu adıma ihtiyaç
+> duymadan `gradle` komutunu doğrudan kurup kullanır.
+
+Derlenmiş jar'lar her modülün `build/libs/` klasöründe oluşur.
+
+## Katkı
+
+Issue ve PR'lar memnuniyetle karşılanır. Lütfen:
+- Yeni bir MC sürümü mevcut modülün API'sini kırmıyorsa yeni modül
+  açmayın, sadece sürüm aralığını güncelleyin.
+- `core` modülüne Minecraft/Fabric bağımlılığı eklemeyin.
+- Tick döngüsünde çalışacak kod için allocation'dan kaçının.
+
+## Lisans
+
+[MIT](LICENSE)

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "burnedconfig",
+  "version": "${version}",
+  "name": "BurnedConfig",
+  "description": "Fabric modları için annotation tabanlı ve builder tabanlı, allocation-dostu config kütüphanesi.",
+  "authors": ["BurnedCraft"],
+  "contact": {
+    "homepage": "https://github.com/burnedcraft/BurnedConfig",
+    "sources": "https://github.com/burnedcraft/BurnedConfig",
+    "issues": "https://github.com/burnedcraft/BurnedConfig/issues"
+  },
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.burned.config.fabric.BurnedConfigFabric"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.14.0",
+    "minecraft": ">=1.18 <=26.2",
+    "java": ">=17"
+  }
+}
